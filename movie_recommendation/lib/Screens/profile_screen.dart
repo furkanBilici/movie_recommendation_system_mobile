@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'admin_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -14,6 +15,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   bool _isLoginMode = true;
   bool _isLoggedIn = false;
   bool _isLoading = false;
+  bool _isAdmin = false;
   String _currentUsername = "";
 
   // Form Kontrolcüleri
@@ -42,14 +44,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
       setState(() {
         _isLoggedIn = true;
         _currentUsername = savedUsername;
-        _newUsernameController.text =
-            savedUsername; // Güncelleme kutusuna eski adı yaz
+        _newUsernameController.text = savedUsername;
+        _isAdmin = prefs.getBool('is_admin') ?? false;
       });
-      _fetchMyComments(); // Giriş yapmışsa yorumlarını çek
+      _fetchMyComments();
     }
   }
 
-  // --- 1. AUTH İŞLEMLERİ (Öncekiyle aynı) ---
   Future<void> _submitAuth() async {
     setState(() => _isLoading = true);
     final url = Uri.parse(
@@ -75,12 +76,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
         body: json.encode(bodyData),
       );
       if (response.statusCode == 200 || response.statusCode == 201) {
+        final data = json.decode(response.body);
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('username', _usernameController.text);
+        await prefs.setBool('is_admin', data['is_admin'] ?? false);
+
         setState(() {
           _isLoggedIn = true;
           _currentUsername = _usernameController.text;
           _newUsernameController.text = _currentUsername;
+          _isAdmin = data['is_admin'] ?? false;
           _isLoading = false;
         });
         _fetchMyComments();
@@ -212,13 +217,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  // GİRİŞ YAPMIŞ KULLANICI İÇİN KONTROL PANELİ (SEKMELİ YAPI)
   Widget _buildDashboard() {
     return DefaultTabController(
-      length: 2, // 2 Sekmemiz var
+      length: 2,
       child: Column(
         children: [
-          // PROFİL BAŞLIĞI VE ÇIKIŞ BUTONU
           Padding(
             padding: const EdgeInsets.all(20.0),
             child: Row(
@@ -242,19 +245,42 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                   ],
                 ),
-                IconButton(
-                  icon: const Icon(
-                    Icons.logout,
-                    color: Colors.redAccent,
-                    size: 28,
-                  ),
-                  onPressed: _logout,
-                  tooltip: "Çıkış Yap",
+
+                Row(
+                  children: [
+                    if (_isAdmin)
+                      IconButton(
+                        icon: const Icon(
+                          Icons.admin_panel_settings,
+                          color: Colors.purpleAccent,
+                          size: 28,
+                        ),
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) =>
+                                  AdminScreen(adminUsername: _currentUsername),
+                            ),
+                          );
+                        },
+                        tooltip: "Yönetici Paneli",
+                      ),
+
+                    IconButton(
+                      icon: const Icon(
+                        Icons.logout,
+                        color: Colors.redAccent,
+                        size: 28,
+                      ),
+                      onPressed: _logout,
+                      tooltip: "Çıkış Yap",
+                    ),
+                  ],
                 ),
               ],
             ),
           ),
-
           // SEKMELER (TABS)
           const TabBar(
             indicatorColor: Colors.redAccent,

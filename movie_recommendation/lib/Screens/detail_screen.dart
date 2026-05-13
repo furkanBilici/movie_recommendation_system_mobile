@@ -18,6 +18,8 @@ class _DetailScreenState extends State<DetailScreen> {
   bool _isLoadingComments = true;
   bool _isLoggedIn = false;
   String _currentUsername = "";
+  bool _isAdmin = false; // ADMIN KONTROLÜ
+
   final TextEditingController _commentController = TextEditingController();
 
   // SEÇİLEN YILDIZ SAYISINI TUTACAK DEĞİŞKEN (0-5 arası)
@@ -37,6 +39,7 @@ class _DetailScreenState extends State<DetailScreen> {
       setState(() {
         _isLoggedIn = true;
         _currentUsername = savedUsername;
+        _isAdmin = prefs.getBool('is_admin') ?? false; // ADMİN Mİ KONTROL ET
       });
     }
   }
@@ -58,8 +61,6 @@ class _DetailScreenState extends State<DetailScreen> {
     }
   }
 
-  // --- GÜNCELLENEN: HEM YORUM HEM PUAN GÖNDERME FONKSİYONU ---
-  // --- GÜNCELLENEN: YILDIZLARI YORUMA EKLEYEN FONKSİYON ---
   Future<void> _postCommentAndRate() async {
     if (_selectedRating == 0) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -81,12 +82,10 @@ class _DetailScreenState extends State<DetailScreen> {
     }
 
     try {
-      // 1. ZEKİCE DOKUNUŞ: Seçilen yıldızları emojiye çevirip yorumun en üstüne ekliyoruz (\n ile alt satıra geçiyoruz)
       String starEmojis = List.generate(_selectedRating, (index) => '⭐').join();
       String finalCommentText =
           "$starEmojis\n${_commentController.text.trim()}";
 
-      // 2. YORUMU GÖNDER (Artık içinde yıldız emojileri de var)
       final commentUrl = Uri.parse(
         'http://10.0.2.2:5000/api/comments/${widget.movie.id}',
       );
@@ -99,7 +98,6 @@ class _DetailScreenState extends State<DetailScreen> {
         }),
       );
 
-      // 3. PUANI GÖNDER
       final rateUrl = Uri.parse('http://10.0.2.2:5000/api/rate');
       await http.post(
         rateUrl,
@@ -111,7 +109,6 @@ class _DetailScreenState extends State<DetailScreen> {
         }),
       );
 
-      // 4. EKRANI TEMİZLE VE YENİLE
       _commentController.clear();
       setState(() {
         _selectedRating = 0;
@@ -129,8 +126,13 @@ class _DetailScreenState extends State<DetailScreen> {
     }
   }
 
-  Future<void> _deleteComment(int commentId) async {
-    final url = Uri.parse('http://10.0.2.2:5000/api/comments/$commentId');
+  // YENİ: Yorum silme işlemi (Admin kontrolü eklendi)
+  Future<void> _deleteComment(int commentId, bool isMyComment) async {
+    final urlStr = (!isMyComment && _isAdmin)
+        ? 'http://10.0.2.2:5000/api/admin/delete_comment/$commentId'
+        : 'http://10.0.2.2:5000/api/comments/$commentId';
+
+    final url = Uri.parse(urlStr);
     try {
       final response = await http.delete(
         url,
@@ -199,7 +201,6 @@ class _DetailScreenState extends State<DetailScreen> {
                       ),
                     ),
                   ),
-                  // ESKİ PUAN VERME BUTONUNU KALDIRDIK, SADECE FİLMİN ORTALAMA PUANI GÖRÜNÜYOR
                   Container(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 12,
@@ -269,7 +270,6 @@ class _DetailScreenState extends State<DetailScreen> {
               ),
             ),
 
-            // YORUM YAZMA VE YILDIZ VERME BÖLÜMÜ
             if (_isLoggedIn)
               Padding(
                 padding: const EdgeInsets.symmetric(
@@ -279,7 +279,6 @@ class _DetailScreenState extends State<DetailScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // YILDIZLAR
                     Row(
                       children: [
                         const Text(
@@ -292,8 +291,7 @@ class _DetailScreenState extends State<DetailScreen> {
                         ...List.generate(5, (index) {
                           return IconButton(
                             padding: EdgeInsets.zero,
-                            constraints:
-                                const BoxConstraints(), // İkonlar arası boşluğu daraltır
+                            constraints: const BoxConstraints(),
                             icon: Icon(
                               index < _selectedRating
                                   ? Icons.star
@@ -303,8 +301,7 @@ class _DetailScreenState extends State<DetailScreen> {
                             ),
                             onPressed: () {
                               setState(() {
-                                _selectedRating =
-                                    index + 1; // 1 ile 5 arası değer atar
+                                _selectedRating = index + 1;
                               });
                             },
                           );
@@ -312,7 +309,6 @@ class _DetailScreenState extends State<DetailScreen> {
                       ],
                     ),
                     const SizedBox(height: 10),
-                    // YORUM KUTUSU VE GÖNDER BUTONU
                     Row(
                       children: [
                         Expanded(
@@ -362,7 +358,6 @@ class _DetailScreenState extends State<DetailScreen> {
 
             const SizedBox(height: 10),
 
-            // YORUMLARI LİSTELEME
             _isLoadingComments
                 ? const Center(
                     child: Padding(
@@ -384,7 +379,10 @@ class _DetailScreenState extends State<DetailScreen> {
                     itemCount: _comments.length,
                     itemBuilder: (context, index) {
                       final comment = _comments[index];
+
+                      // YENİ: Kimin silebileceğini kontrol ediyoruz
                       final isMyComment = comment['author'] == _currentUsername;
+                      final canDelete = isMyComment || _isAdmin;
 
                       return Card(
                         color: const Color(0xFF222222),
@@ -408,14 +406,18 @@ class _DetailScreenState extends State<DetailScreen> {
                             comment['body'] ?? '',
                             style: const TextStyle(color: Colors.white70),
                           ),
-                          trailing: isMyComment
+                          trailing: canDelete
                               ? IconButton(
-                                  icon: const Icon(
+                                  icon: Icon(
                                     Icons.delete,
-                                    color: Colors.grey,
+                                    color: _isAdmin && !isMyComment
+                                        ? Colors.redAccent
+                                        : Colors.grey,
                                   ),
-                                  onPressed: () =>
-                                      _deleteComment(comment['id']),
+                                  onPressed: () => _deleteComment(
+                                    comment['id'],
+                                    isMyComment,
+                                  ),
                                 )
                               : Text(
                                   comment['timestamp'] ?? '',
